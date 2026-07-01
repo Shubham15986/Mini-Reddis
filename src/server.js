@@ -135,7 +135,9 @@ const server = net.createServer((socket) => {
     }
   });
   socket.on('error', (err) => {
-    console.error('Client disconnected or error:', err.message);
+    if (err.code !== 'ECONNRESET') {
+      console.error('Client error:', err.message);
+    }
   });
 });
 
