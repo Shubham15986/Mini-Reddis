@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mini Redis Terminal</title>
+  <style>
+    body { background-color: #1e1e1e; color: #00ff00; font-family: monospace; padding: 20px; }
+    #terminal { height: 80vh; overflow-y: auto; margin-bottom: 10px; white-space: pre-wrap; }
+    .input-line { display: flex; }
+    .prompt { margin-right: 10px; color: #ffeb3b; }
+    input { background: transparent; border: none; color: #fff; font-family: monospace; font-size: 16px; outline: none; flex-grow: 1; }
+  </style>
+</head>
+<body>
+  <div id="terminal"></div>
+  <div class="input-line">
+    <span class="prompt">mini-redis></span>
+    <input type="text" id="cmdInput" autofocus autocomplete="off">
+  </div>
+
+  <script>
+    const ws = new WebSocket(`ws://${window.location.host}`);
+    const terminal = document.getElementById('terminal');
+    const input = document.getElementById('cmdInput');
+
+    function appendToTerminal(text, isCommand = false) {
+      const div = document.createElement('div');
+      div.textContent = (isCommand ? "mini-redis> " : "") + text;
+      div.style.color = isCommand ? "#ffeb3b" : "#00ff00";
+      terminal.appendChild(div);
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    ws.onmessage = (event) => appendToTerminal(event.data);
+
+    input.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter' && input.value.trim()) {
+        const cmd = input.value.trim();
+        appendToTerminal(cmd, true); // Echo the command
+        ws.send(cmd);                // Send to proxy
+        input.value = '';            // Clear input
+      }
+    });
+  </script>
+</body>
+</html>
