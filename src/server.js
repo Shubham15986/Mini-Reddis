@@ -12,6 +12,7 @@ const lists = new Map(); // Key -> DoublyLinkedList
 const sortedSets = new Map(); // Key -> SkipList
 const cache = new LRUCache(3); // Max 3 items for testing
 const expiryHeap = new MinHeap();
+const pubsubChannels = new Map(); // Key: Channel Name, Value: Set of Client Sockets
 
 // Startup Persistence Loading
 if (fs.existsSync('dump.rdb.json')) {
@@ -51,7 +52,7 @@ setInterval(() => {
   }
 }, 1000); // Check every second
 
-const handleCommand = (commandStr) => {
+const handleCommand = (commandStr, socket) => {
   const args = commandStr.trim().split(/\s+/);
   if (args.length === 0 || !args[0]) return '';
 
@@ -103,6 +104,32 @@ const handleCommand = (commandStr) => {
       const range = sortedSets.get(key).range(start, end);
       return range.length ? range.join('\n') : '(empty array)';
 
+    // --- PUBSUB COMMANDS ---
+    case 'SUBSCRIBE':
+      if (!key) return '(error) ERR wrong number of arguments for SUBSCRIBE';
+      if (!pubsubChannels.has(key)) {
+        pubsubChannels.set(key, new Set());
+      }
+      pubsubChannels.get(key).add(socket);
+      return `1) "subscribe"\n2) "${key}"\n3) (integer) 1`;
+
+    case 'PUBLISH':
+      if (args.length < 3) return '(error) ERR wrong number of arguments for PUBLISH';
+      const message = args.slice(2).join(' ');
+      if (!pubsubChannels.has(key)) return '(integer) 0';
+
+      const subscribers = pubsubChannels.get(key);
+      let count = 0;
+      for (const subSocket of subscribers) {
+        try {
+          subSocket.write(`\n1) "message"\n2) "${key}"\n3) "${message}"\r\n> `);
+          count++;
+        } catch (error) {
+          console.error('Failed to broadcast to a socket');
+        }
+      }
+      return `(integer) ${count}`;
+
     // --- EXISTING COMMANDS ---
     case 'DEL':
       if (args.length < 2) return '(error) ERR wrong number of arguments for DEL';
@@ -127,17 +154,30 @@ const server = net.createServer((socket) => {
     let responses = [];
     for (let cmd of commands) {
       if (!cmd.trim()) continue;
-      const res = handleCommand(cmd);
+      const res = handleCommand(cmd, socket);
       if (res) responses.push(res);
     }
     if (responses.length > 0) {
       socket.write(responses.join('\r\n> ') + '\r\n> ');
     }
   });
+
+  // CLEANUP LOGIC: When a client disconnects
+  const cleanup = () => {
+    for (const [channel, subscribers] of pubsubChannels.entries()) {
+      subscribers.delete(socket); // Remove the dead socket
+      if (subscribers.size === 0) {
+        pubsubChannels.delete(channel);
+      }
+    }
+  };
+
+  socket.on('close', cleanup);
   socket.on('error', (err) => {
     if (err.code !== 'ECONNRESET') {
       console.error('Client error:', err.message);
     }
+    cleanup();
   });
 });
 
